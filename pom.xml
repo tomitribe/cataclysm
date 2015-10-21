@@ -23,7 +23,7 @@
   <name>Tomitribe :: Catacylysm</name>
 
   <properties>
-    <crest.version>0.3</crest.version>
+    <crest.version>0.6</crest.version>
   </properties>
 
   <dependencies>

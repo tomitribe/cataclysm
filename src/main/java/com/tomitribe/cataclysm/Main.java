@@ -54,7 +54,7 @@ public class Main {
         Files.mkdir(logs);
     }
 
-    private void run() throws Exception {
+    public void run() throws Exception {
 
         final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
         scheduler.scheduleAtFixedRate(this::printStatus, 2, 2, TimeUnit.SECONDS);
