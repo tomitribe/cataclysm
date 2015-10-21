@@ -9,18 +9,24 @@
  */
 package com.tomitribe.cataclysm;
 
-import org.apache.commons.math3.stat.descriptive.SynchronizedDescriptiveStatistics;
+import io.airlift.stats.DecayCounter;
+import io.airlift.stats.ExponentialDecay;
+import io.airlift.stats.TimedStat;
 
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class State {
 
     private final String name;
     private final AtomicInteger count = new AtomicInteger(0);
-    private final SynchronizedDescriptiveStatistics statistics = new SynchronizedDescriptiveStatistics(2000);
+    private DecayCounter tps;
+    private TimedStat response;
 
     public State(String name) {
         this.name = name;
+        tps = new DecayCounter(ExponentialDecay.seconds(1));
+        response = new TimedStat();
     }
 
     public State(String name, int count) {
@@ -30,7 +36,8 @@ public class State {
 
     public void count(final long time) {
         count.incrementAndGet();
-        statistics.addValue(time);
+        response.addValue(time, TimeUnit.MILLISECONDS);
+        tps.add(1);
     }
 
     public String getName() {
@@ -47,7 +54,7 @@ public class State {
 
     @Override
     public String toString() {
-        return String.format("%s (%s %sms)", name, count.get(), (long) statistics.getMean());
+        return String.format("%s (%s %stps %sms)", name, count.get(), (long) tps.getRate(), (long) response.getMean());
     }
 
 }

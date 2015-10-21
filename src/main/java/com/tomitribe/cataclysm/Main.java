@@ -10,16 +10,10 @@
 package com.tomitribe.cataclysm;
 
 import org.apache.http.Header;
-import org.apache.http.HttpEntity;
 import org.apache.http.HttpResponse;
-import org.apache.http.NameValuePair;
-import org.apache.http.StatusLine;
-import org.apache.http.client.entity.UrlEncodedFormEntity;
-import org.apache.http.client.methods.HttpPost;
-import org.apache.http.impl.client.CloseableHttpClient;
-import org.apache.http.impl.client.HttpClients;
-import org.apache.http.message.BasicNameValuePair;
-import org.apache.http.util.EntityUtils;
+import org.tomitribe.crest.api.Command;
+import org.tomitribe.crest.api.Default;
+import org.tomitribe.crest.api.Option;
 import org.tomitribe.util.Files;
 import org.tomitribe.util.Hex;
 import org.tomitribe.util.IO;
@@ -29,55 +23,45 @@ import org.tomitribe.util.hash.XxHash64;
 
 import java.io.File;
 import java.io.IOException;
-import java.net.URI;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Stream;
 
 public class Main {
 
-
     public static void main(String[] args) throws Exception {
-        new Main().run();
+        new Main().run(10, new File("/tmp/issues"), Scenario.RefreshGrant);
     }
 
     private final Map<String, State> counts = new ConcurrentHashMap<>();
-    private final File logs;
+    private File logs;
 
-    public Main() {
-        logs = new File("/tmp/issues");
-        Files.mkdir(logs);
-    }
+    @Command
+    public void run(@Option("threads") @Default("10") final int threads,
+                    @Option("logs") @Default("/tmp/issues") final File logs,
+                    @Option("logs") @Default("ResourceOwnerPasswordGrant") final Scenario scenario) throws Exception {
 
-    public void run() throws Exception {
+        this.logs = logs;
+        Files.mkdir(this.logs);
 
         final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
         scheduler.scheduleAtFixedRate(this::printStatus, 2, 2, TimeUnit.SECONDS);
 
-        final CloseableHttpClient httpClient = HttpClients.createDefault();
+        final Callable<Response> test = scenario.call();
 
-        final URI tokenEndpoint = new URI("https://soa-test.starbucks.com/soa-iag/oauth/token");
-        final List<NameValuePair> form = new ArrayList<>();
-        form.add(new BasicNameValuePair("client_id", "s-partner-app"));
-        form.add(new BasicNameValuePair("client_secret", "UI@imp0P"));
-//        form.add(new BasicNameValuePair("username", "UI9990648"));
-        form.add(new BasicNameValuePair("username", "US1920648"));
-        form.add(new BasicNameValuePair("password", "Pwd$100012"));
-        form.add(new BasicNameValuePair("grant_type", "passwords"));
+        for (int i = 0; i < threads; i++) {
+            final Caller caller = new Caller(() -> {
+                exec(test);
+            });
 
-        final UrlEncodedFormEntity entity = new UrlEncodedFormEntity(form);
-
-        final HttpPost httppost = new HttpPost(tokenEndpoint);
-        httppost.setEntity(entity);
-        httppost.addHeader("Content-Type", "application/x-www-form-urlencoded");
-
-        while (true) {
-            exec(httpClient, httppost);
+            final Thread thread = new Thread(caller);
+            thread.start();
         }
     }
 
@@ -85,18 +69,13 @@ public class Main {
         System.out.print("\r" + States.printStates(counts));
     }
 
-    private void exec(CloseableHttpClient httpClient, HttpPost httppost) {
+    private void exec(final Callable<Response> callable) {
         final long start = System.nanoTime();
         try {
-            final HttpResponse response = httpClient.execute(httppost);
 
-            final StatusLine statusLine = response.getStatusLine();
-            final int statusCode = statusLine.getStatusCode();
-
+            final Response response = callable.call();
+            final int statusCode = response.getHttpResponse().getStatusLine().getStatusCode();
             final String name = statusCode + "";
-
-            final HttpEntity responseEntity = response.getEntity();
-            final String content = EntityUtils.toString(responseEntity);
 
             if (ok(statusCode)) {
 
@@ -104,7 +83,9 @@ public class Main {
 
             } else {
 
-                count(log(name, format(response, content)), time(start));
+                final String format = format(response);
+
+                count(log(name, format), time(start));
 
             }
 
@@ -112,6 +93,26 @@ public class Main {
             final String name = t.getClass().getSimpleName();
             count(log(name, format(t)), time(start));
         }
+    }
+
+    private String format(Response r) {
+        final PrintString out = new PrintString();
+
+        // HTTP/1.1 403 Forbidden
+        out.println(r.getHttpResponse().getStatusLine());
+
+        // headers (minus date so it hashes with stable result)
+        Stream.of(r.getHttpResponse().getAllHeaders())
+                .filter(header -> !"Date".equalsIgnoreCase(header.getName()))
+                .map(Header::toString)
+                .sorted()
+                .forEach(out::println);
+
+        // Content
+        out.println();
+        out.println(r.getContent());
+
+        return out.toString();
     }
 
     private static long time(long start) {
@@ -178,5 +179,36 @@ public class Main {
 
     private boolean ok(int statusCode) {
         return statusCode >= 200 && statusCode <= 299;
+    }
+
+    private class Caller implements Runnable {
+        final AtomicBoolean run = new AtomicBoolean(true);
+        final CountDownLatch finished = new CountDownLatch(1);
+        private final Runnable runnable;
+
+        public Caller(Runnable runnable) {
+            this.runnable = runnable;
+        }
+
+        public AtomicBoolean getRun() {
+            return run;
+        }
+
+        public CountDownLatch getFinished() {
+            return finished;
+        }
+
+        @Override
+        public void run() {
+
+            try {
+                while (run.get()) {
+                    runnable.run();
+                }
+            } finally {
+                finished.countDown();
+            }
+
+        }
     }
 }
