@@ -1,5 +1,18 @@
 # Cataclysm
 
+## Read before going further
+
+Usage today:
+
+
+```
+java -cp target/catacylysm-6.jar com.tomitribe.cataclysm.Main
+```
+
+Goal part is not done at all
+
+## Goal
+
 Quick and dirty tester that fully records failures.  Not really designed for performance tesing, Cataclysm leans 
 towards learning what is failing and how often.
 
