@@ -86,6 +86,7 @@ public class Main {
     }
 
     private void exec(CloseableHttpClient httpClient, HttpPost httppost) {
+        final long start = System.nanoTime();
         try {
             final HttpResponse response = httpClient.execute(httppost);
 
@@ -99,22 +100,26 @@ public class Main {
 
             if (ok(statusCode)) {
 
-                count(name);
+                count(name, time(start));
 
             } else {
 
-                count(log(name, format(response, content)));
+                count(log(name, format(response, content)), time(start));
 
             }
 
         } catch (Throwable t) {
             final String name = t.getClass().getSimpleName();
-            count(log(name, format(t)));
+            count(log(name, format(t)), time(start));
         }
     }
 
-    private String count(String name) {
-        counts.computeIfAbsent(name, aLong -> new State(name)).incrementAndGet();
+    private static long time(long start) {
+        return TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
+    }
+
+    private String count(String name, long time) {
+        counts.computeIfAbsent(name, aLong -> new State(name)).count(time);
         return name;
     }
 
